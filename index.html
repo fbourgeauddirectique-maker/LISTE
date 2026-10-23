@@ -96,6 +96,15 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;paddin
 }
 .row:first-child{border-top:0}
 .row .name{flex:1;min-width:0;overflow-wrap:anywhere}
+.rowmain{
+  flex:1;min-width:0;display:flex;align-items:center;gap:14px;min-height:58px;
+  padding:0;border:0;background:none;text-align:left;
+}
+.step{flex-shrink:0;display:flex;align-items:center;border:1.5px solid var(--line);border-radius:999px}
+.step .sb{width:42px;height:40px;border:0;background:none;font-size:24px;line-height:1;color:var(--ink);border-radius:999px}
+.step .sb:disabled{opacity:.3;cursor:default}
+.step .q{min-width:26px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.qty-static{flex-shrink:0;color:var(--muted);font-weight:600}
 .row.done .name{color:var(--muted);text-decoration:line-through}
 .tick{
   flex-shrink:0;width:26px;height:26px;border-radius:50%;
@@ -331,10 +340,13 @@ function renderList(s,buy){
       h('span',null,(items.length-done)+' à acheter'+(done?', '+done+' pris':'')),
       done ? h('button',{onclick:clearDone},'Retirer les produits pris') : null);
     group = h('div',{class:'group'}, items.map(function(p){
-      return h('button',{class:'row'+(p.st===2?' done':''),role:'checkbox','aria-checked':p.st===2,
-        onclick:function(){ p.st = p.st===2 ? 1 : 2; save(); render(); }},
-        h('span',{class:'tick'},icon(CHECK)),
-        h('span',{class:'name'},p.name));
+      var q = p.qty>1 ? p.qty : 1, isDone = p.st===2;
+      return h('div',{class:'row'+(isDone?' done':'')},
+        h('button',{class:'rowmain',role:'checkbox','aria-checked':isDone,
+          onclick:function(){ p.st = isDone ? 1 : 2; save(); render(); }},
+          h('span',{class:'tick'},icon(CHECK)),
+          h('span',{class:'name'},p.name)),
+        isDone ? (q>1 ? h('span',{class:'qty-static'},'×'+q) : null) : stepper(p,q));
     }));
   } else {
     var all = s.products.slice().sort(byName);
@@ -355,13 +367,21 @@ function renderList(s,buy){
       }
       var on = p.st>0;
       return h('button',{class:'row',role:'switch','aria-checked':on,
-        onclick:function(){ p.st = on ? 0 : 1; save(); render(); }},
+        onclick:function(){ p.st = on ? 0 : 1; p.qty = 1; save(); render(); }},
         h('span',{class:'name'},p.name),
         h('span',{class:'pill'+(on?' on':'')},on?'Dans la liste':'Ajouter'));
     }));
   }
   host.appendChild(bar);
   host.appendChild(group);
+}
+
+function stepper(p,q){
+  function set(n){ p.qty = n; save(); render(); }
+  return h('div',{class:'step',role:'group','aria-label':'Quantité de '+p.name},
+    h('button',{type:'button',class:'sb','aria-label':'Diminuer la quantité',disabled:q<=1,onclick:function(){ set(q-1); }},'−'),
+    h('span',{class:'q'},q),
+    h('button',{type:'button',class:'sb','aria-label':'Augmenter la quantité',disabled:q>=99,onclick:function(){ set(q+1); }},'+'));
 }
 
 function renderNav(){
@@ -383,7 +403,7 @@ function setView(v){ state.view = v; editing = false; save(); render(); $('main'
 
 /* ---------- Actions ---------- */
 function clearDone(){
-  cur().products.forEach(function(p){ if(p.st===2) p.st = 0; });
+  cur().products.forEach(function(p){ if(p.st===2){ p.st = 0; p.qty = 1; } });
   save(); render();
 }
 function removeProduct(p){
@@ -398,12 +418,12 @@ function addProduct(raw){
   var found = s.products.filter(function(p){ return p.name.toLowerCase()===name.toLowerCase(); })[0];
   if(found){
     if(buy){
-      if(found.st===0){ found.st = 1; toast(found.name+' ajouté à la liste'); }
+      if(found.st===0){ found.st = 1; found.qty = 1; toast(found.name+' ajouté à la liste'); }
       else if(found.st===2){ found.st = 1; toast(found.name+' remis à acheter'); }
       else toast(found.name+' est déjà dans la liste');
     } else toast(found.name+' existe déjà');
   } else {
-    s.products.push({id:uid(),name:name,st:buy?1:0});
+    s.products.push({id:uid(),name:name,st:buy?1:0,qty:1});
   }
   save(); render();
   return true;
@@ -498,7 +518,8 @@ function clean(data){
       name: st.name,
       color: typeof st.color==='string' ? st.color : COLORS[0][1],
       products: st.products.filter(function(p){ return p && typeof p.name==='string'; }).map(function(p){
-        return {id: typeof p.id==='string' && p.id ? p.id : uid(), name:p.name, st:(p.st===1||p.st===2)?p.st:0};
+        return {id: typeof p.id==='string' && p.id ? p.id : uid(), name:p.name, st:(p.st===1||p.st===2)?p.st:0,
+          qty:(typeof p.qty==='number' && p.qty>=1 && p.qty<=99) ? Math.floor(p.qty) : 1};
       })
     });
   });
@@ -514,7 +535,7 @@ function mergeData(data){
     if(!s){ s = {id:uid(),name:ins.name,color:ins.color,products:[]}; state.stores.push(s); }
     ins.products.forEach(function(ip){
       var found = s.products.some(function(p){ return low(p.name)===low(ip.name); });
-      if(!found) s.products.push({id:uid(),name:ip.name,st:ip.st});
+      if(!found) s.products.push({id:uid(),name:ip.name,st:ip.st,qty:ip.qty||1});
     });
   });
 }
